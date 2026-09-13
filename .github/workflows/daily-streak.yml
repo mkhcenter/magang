@@ -4,7 +4,7 @@ on:
   schedule:
     # Berjalan otomatis setiap hari pukul 00:00 UTC (07:00 WIB)
     - cron: '0 0 * * *'
-  # Memungkinkan trigger manual dari tab Actions di GitHub
+  # Memungkinkan pemicu manual dari tab Actions di GitHub
   workflow_dispatch:
 
 permissions:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Streak Activity
         run: |
@@ -24,8 +26,8 @@ jobs:
 
       - name: Commit and Push
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "mkhcenter"
+          git config --global user.email "yasinaahmad4@gmail.com"
           git add .github/activity/streak.txt
-          git commit -m "chore(streak): daily auto commit [skip ci]" || echo "Nothing to commit"
+          git commit -m "chore(streak): daily auto commit" || echo "Nothing to commit"
           git push
