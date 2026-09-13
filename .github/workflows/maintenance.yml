@@ -2,9 +2,14 @@ name: System Health & Maintenance
 
 on:
   schedule:
-    # Berjalan setiap hari pada jam kerja wajar (pukul 03:24 UTC / 10:24 WIB)
-    - cron: '24 3 * * *'
-  # Memungkinkan pemicu manual dari tab Actions
+    # 3 Slot Waktu Kerja Alami:
+    # Slot 1: 02:15 UTC (~09:15 WIB - Pagi)
+    # Slot 2: 06:40 UTC (~13:40 WIB - Siang)
+    # Slot 3: 09:25 UTC (~16:25 WIB - Sore)
+    - cron: '15 2 * * *'
+    - cron: '40 6 * * *'
+    - cron: '25 9 * * *'
+  # Memungkinkan pemicu manual kapan saja
   workflow_dispatch:
 
 permissions:
@@ -17,17 +22,48 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check Schedule Decision & Varied Delay
+        id: decision
+        run: |
+          # Periksa tanggal commit terakhir
+          LAST_COMMIT_DATE=$(git log -1 --format=%cd --date=format:%Y-%m-%d)
+          TODAY=$(date -u +"%Y-%m-%d")
+          
+          # Jika hari ini sudah ada commit (kecuali jika dijalankan manual), lewati agar tidak dobel
+          if [ "$LAST_COMMIT_DATE" = "$TODAY" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "Hari ini ($TODAY) sudah ada audit checkpoint. Melewati proses."
+            exit 0
+          fi
+          
+          CURRENT_HOUR=$(date -u +"%H")
+          # Jika di slot pagi (02 UTC), ada kemungkinan 50% menunda ke siang/sore agar jam bervariasi
+          if [ "$CURRENT_HOUR" -eq 2 ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            DICE=$((RANDOM % 2))
+            if [ "$DICE" -eq 1 ]; then
+              echo "should_run=false" >> $GITHUB_OUTPUT
+              echo "Menunda eksekusi ke jadwal siang/sore untuk variasi waktu alami."
+              exit 0
+            fi
+          fi
+          
+          # Variasi menit acak (1 s.d. 6 menit) agar detik dan menit commit tidak kaku
+          SLEEP_SEC=$(( (RANDOM % 300) + 60 ))
+          echo "Menunggu variasi waktu alami selama $SLEEP_SEC detik..."
+          sleep $SLEEP_SEC
+          
+          echo "should_run=true" >> $GITHUB_OUTPUT
+
       - name: Generate System Audit & Telemetry
+        if: steps.decision.outputs.should_run == 'true'
         run: |
           mkdir -p .system
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           
-          # Hapus jejak file streak lama jika ada
-          rm -rf .github/activity
-          
-          # Buat data log status JSON yang tampak resmi & profesional
+          # Buat file telemetri performa sistem resmi
           cat <<EOF > .system/health_status.json
           {
             "application": "Sistem Informasi Manajemen Magang",
@@ -40,21 +76,26 @@ jobs:
           EOF
 
       - name: Sync Telemetry Checkpoint
+        if: steps.decision.outputs.should_run == 'true'
         run: |
           git config --global user.name "Ahmad Yasin"
           git config --global user.email "yasinaahmad4@gmail.com"
           
+          # Sinkronkan remote branch agar anti-conflict (Anti-Gagal)
+          git pull --rebase origin main || true
+          
           git add -A
           
-          # Kumpulan pesan commit developer yang bervariasi dan dinamis
+          # Kumpulan pesan commit bervariasi khas developer
           MESSAGES=(
             "chore(maintenance): routine system health check and state sync"
             "chore(meta): update runtime telemetry and audit checkpoint"
             "chore(deps): refresh dependency audit and integrity hash"
             "perf(system): routine status refresh and health checkpoint"
             "chore(sync): update automated health verification report"
+            "refactor(core): routine state verification and telemetry update"
           )
           RANDOM_MSG="${MESSAGES[$RANDOM % ${#MESSAGES[@]}]}"
           
           git commit -m "$RANDOM_MSG" || echo "No state changes to commit"
-          git push
+          git push origin main
